@@ -1,0 +1,9 @@
+[project]
+name = "stox-kafka"
+version = "0.1.0"
+description = "Local Kafka learning project with Scala examples and an IBKR Python tick producer."
+requires-python = ">=3.11"
+dependencies = [
+  "ib_async==2.0.1",
+  "kafka-python==2.2.15",
+]

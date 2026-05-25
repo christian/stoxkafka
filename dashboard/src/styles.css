@@ -1,0 +1,169 @@
+:root {
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #d8e0e7;
+  background: #101418;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: #101418;
+}
+
+button,
+select {
+  font: inherit;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px 24px 14px;
+  border-bottom: 1px solid #26313a;
+  background: #121920;
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.15;
+  font-weight: 700;
+}
+
+.topbar p {
+  margin: 4px 0 0;
+  color: #8ea0af;
+  font-size: 14px;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.symbol-picker {
+  display: grid;
+  gap: 6px;
+  min-width: 132px;
+}
+
+.symbol-picker span {
+  color: #8ea0af;
+  font-size: 12px;
+}
+
+.symbol-picker select {
+  height: 36px;
+  border: 1px solid #34424e;
+  border-radius: 6px;
+  background: #18222b;
+  color: #eef4f8;
+  padding: 0 10px;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  background: #26313a;
+  border-bottom: 1px solid #26313a;
+}
+
+.metric {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  background: #151d24;
+}
+
+.metric-icon {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border: 1px solid #34424e;
+  border-radius: 6px;
+  color: #95a8b7;
+}
+
+.metric-icon.good {
+  color: #26a69a;
+}
+
+.metric-icon.warn {
+  color: #f0b44c;
+}
+
+.metric-label {
+  color: #8ea0af;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.metric-value {
+  margin-top: 2px;
+  font-size: 16px;
+  line-height: 1.25;
+  font-weight: 650;
+  color: #eef4f8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-section {
+  min-height: 0;
+  padding: 0;
+  background: #101418;
+}
+
+.chart {
+  width: 100%;
+  height: calc(100vh - 161px);
+  min-height: 420px;
+}
+
+@media (max-width: 760px) {
+  .topbar {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 16px;
+  }
+
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metric {
+    padding: 12px;
+  }
+
+  .chart {
+    height: calc(100vh - 257px);
+    min-height: 360px;
+  }
+}
+
