@@ -53,13 +53,39 @@ npm install
 npm run dev
 ```
 
-Terminal 5: IBKR tick producer
+Terminal 5: SQLite live store
+
+```sh
+cd /Users/cristi/Code/stox-kafka
+sbt "runMain stoxkafka.CandleSqliteStorageService"
+```
+
+This store keeps the current day in SQLite by default, including the in-progress candle state, so a refresh still shows today's chart.
+
+Terminal 6: IBKR tick producer
 
 ```sh
 cd /Users/cristi/Code/stox-kafka
 uv sync
 uv run python/ibkr_tick_producer.py
 ```
+
+Terminal 7: IBKR options OI snapshot producer
+
+```sh
+cd /Users/cristi/Code/stox-kafka
+uv sync
+uv run python/ibkr_options_oi_producer.py
+```
+
+Terminal 8: options OI SQLite consumer
+
+```sh
+cd /Users/cristi/Code/stox-kafka
+sbt "runMain stoxkafka.OptionsOpenInterestSqliteService"
+```
+
+This keeps the raw option-contract snapshots and the daily put/call ratio series in `data/live/options_oi.db`.
 
 Open the live dashboard:
 
@@ -80,8 +106,18 @@ IBKR tick producer
   -> market.trades.raw
   -> OneMinuteCandleService
   -> market.candles.1m
+  -> CandleSqliteStorageService
   -> CandleWebSocketService
   -> React dashboard
+```
+
+The options OI path is:
+
+```text
+IBKR options OI producer
+  -> market.options.oi.snapshot
+  -> OptionsOpenInterestSqliteService
+  -> data/live/options_oi.db
 ```
 
 Useful health checks:
@@ -116,6 +152,7 @@ This creates:
 
 ```text
 market.trades.raw     24 partitions
+market.options.oi.snapshot  6 partitions
 market.candles.1s     24 partitions
 market.candles.1m     24 partitions
 market.candles.5m     12 partitions
@@ -129,6 +166,7 @@ Suggested keys:
 ```text
 raw trades: exchange:symbol
 candles:    exchange:symbol:timeframe
+options OI: underlying:expiry:strike:right
 ```
 
 ## Stream IBKR ticks into Kafka
@@ -136,6 +174,8 @@ candles:    exchange:symbol:timeframe
 The Python producer in `python/ibkr_tick_producer.py` connects to Trader Workstation or IB Gateway using `ib_async`, subscribes to ASML on Euronext Amsterdam, and writes tick snapshots to `market.trades.raw`.
 
 ASML is the default because it is a highly traded European large-cap with enough realized movement to make a live market-data example interesting. You need the relevant IBKR market data permissions for live data; otherwise use delayed data.
+
+The tick payload also includes a `session` field (`premarket`, `regular`, or `afterhours`) and `isPremarket` boolean so the UI and downstream consumers can keep the extended-hours ticks distinct.
 
 Install the Python dependencies:
 
@@ -181,6 +221,52 @@ uv run python/ibkr_tick_producer.py \
   --primary-exchange IBIS \
   --currency EUR
 ```
+
+## Stream IBKR options open interest into Kafka
+
+The options OI producer snapshots IBKR option contracts for one underlying, reads `callOpenInterest` / `putOpenInterest`, and writes one record per contract to `market.options.oi.snapshot`.
+
+This is a daily snapshot producer, not a live stream. Open interest is updated overnight, so this is the right shape for a scheduled run after IBKR/OCC updates.
+
+Install the Python dependencies:
+
+```sh
+cd /Users/cristi/Code/stox-kafka
+uv sync
+```
+
+Start Kafka:
+
+```sh
+docker compose up -d
+./scripts/create-trading-topics.sh
+```
+
+Start TWS or IB Gateway, enable API access, then run:
+
+```sh
+uv run python/ibkr_options_oi_producer.py
+```
+
+For delayed data:
+
+```sh
+uv run python/ibkr_options_oi_producer.py --market-data-type 3
+```
+
+Override the underlying:
+
+```sh
+uv run python/ibkr_options_oi_producer.py \
+  --symbol SAP \
+  --exchange SMART \
+  --primary-exchange IBIS \
+  --currency EUR \
+  --max-expiries 2 \
+  --strikes-per-expiry 10
+```
+
+The default selection takes the nearest expiries and strikes around the underlying price. Use `--max-expiries 0` and `--strikes-per-expiry 0` for the full chain.
 
 List topics:
 
@@ -313,6 +399,12 @@ The dashboard connects to:
 ws://localhost:9000/ws/candles?symbol=ASML&timeframe=1m
 ```
 
+The WebSocket service reads today's candles from SQLite at:
+
+```text
+data/live/candles.db
+```
+
 Full live path:
 
 ```text
@@ -320,6 +412,7 @@ IBKR tick producer
   -> market.trades.raw
   -> OneMinuteCandleService
   -> market.candles.1m
+  -> CandleSqliteStorageService
   -> CandleWebSocketService
   -> React dashboard
 ```

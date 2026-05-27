@@ -9,8 +9,10 @@ lazy val root = (project in file("."))
       "com.lihaoyi" %% "ujson" % "4.3.2",
       "org.apache.parquet" % "parquet-avro" % "1.15.2",
       "org.apache.hadoop" % "hadoop-common" % "3.4.1",
+      "org.xerial" % "sqlite-jdbc" % "3.50.3.0",
       "org.apache.pekko" %% "pekko-actor-typed" % "1.3.0",
       "org.apache.pekko" %% "pekko-stream" % "1.3.0",
-      "org.apache.pekko" %% "pekko-http" % "1.3.0"
+      "org.apache.pekko" %% "pekko-http" % "1.3.0",
+      "org.apache.hadoop" % "hadoop-mapreduce-client-core" % "3.4.1"
     )
   )

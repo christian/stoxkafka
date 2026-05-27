@@ -54,6 +54,13 @@ select {
   font-size: 14px;
 }
 
+.chart-date {
+  margin-top: 6px;
+  color: #d8e0e7;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .controls {
   display: flex;
   align-items: center;
@@ -142,7 +149,7 @@ select {
 
 .chart {
   width: 100%;
-  height: calc(100vh - 161px);
+  height: calc(100vh - 183px);
   min-height: 420px;
 }
 
@@ -162,8 +169,7 @@ select {
   }
 
   .chart {
-    height: calc(100vh - 257px);
+    height: calc(100vh - 279px);
     min-height: 360px;
   }
 }
-

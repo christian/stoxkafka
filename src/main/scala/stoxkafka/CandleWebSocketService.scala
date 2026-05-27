@@ -2,17 +2,22 @@ package stoxkafka
 
 import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.common.serialization.StringDeserializer
-import org.apache.pekko.Done
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.http.scaladsl.Http
 import org.apache.pekko.http.scaladsl.model.StatusCodes
+import org.apache.pekko.http.scaladsl.model.headers.`Access-Control-Allow-Origin`
+import org.apache.pekko.http.scaladsl.model.{ContentTypes, HttpEntity, HttpHeader}
 import org.apache.pekko.http.scaladsl.model.ws.{Message, TextMessage}
 import org.apache.pekko.http.scaladsl.server.Directives.*
 import org.apache.pekko.stream.{OverflowStrategy, QueueOfferResult}
 import org.apache.pekko.stream.scaladsl.{Flow, Sink, Source, SourceQueueWithComplete}
 
+import java.nio.file.Files
+import java.nio.file.Paths
+import java.sql.{Connection, DriverManager}
 import java.time.Duration
+import java.time.{Instant, LocalDate, ZoneOffset}
 import java.util.{Collections, Properties, UUID}
 import java.util.concurrent.{ConcurrentHashMap, Executors}
 import scala.concurrent.{ExecutionContext, Future}
@@ -25,6 +30,7 @@ object CandleWebSocketService:
   private val groupId = sys.env.getOrElse("KAFKA_GROUP_ID", "candle-websocket-service")
   private val host = sys.env.getOrElse("WEBSOCKET_HOST", "0.0.0.0")
   private val port = sys.env.get("WEBSOCKET_PORT").flatMap(_.toIntOption).getOrElse(9000)
+  private val sqlitePath = Paths.get(sys.env.getOrElse("CANDLE_SQLITE_DB", "data/live/candles.db"))
 
   final case class Client(
       id: String,
@@ -40,6 +46,9 @@ object CandleWebSocketService:
     val clients = ConcurrentHashMap[String, Client]()
     val consumer = KafkaConsumer[String, String](consumerProperties())
     val consumerExecutor = Executors.newSingleThreadExecutor()
+    Files.createDirectories(sqlitePath.getParent)
+    Class.forName("org.sqlite.JDBC")
+    val dbUrl = s"jdbc:sqlite:${sqlitePath.toAbsolutePath}"
 
     sys.addShutdownHook {
       Try(consumer.wakeup())
@@ -56,6 +65,39 @@ object CandleWebSocketService:
       path("health") {
         complete(StatusCodes.OK -> "ok")
       } ~
+        path("api" / "candles") {
+          parameters("symbol", "timeframe".?, "date".?) { (symbol, timeframe, date) =>
+            complete {
+              val resolvedDate = date.flatMap(value => Try(LocalDate.parse(value)).toOption).getOrElse(LocalDate.now(ZoneOffset.UTC))
+              val resolvedTimeframe = timeframe.getOrElse("1m")
+              val candles = loadCandlesFromSqlite(dbUrl, symbol, resolvedTimeframe, resolvedDate)
+              val payload = ujson.write(ujson.Arr.from(candles.map { candle =>
+                ujson.Obj(
+                  "event" -> candle.event,
+                  "exchange" -> candle.exchange,
+                  "symbol" -> candle.symbol,
+                  "currency" -> candle.currency.getOrElse(""),
+                  "timeframe" -> candle.timeframe,
+                  "openTime" -> candle.openTime.toString,
+                  "closeTime" -> candle.closeTime.toString,
+                  "open" -> candle.open,
+                  "high" -> candle.high,
+                  "low" -> candle.low,
+                  "close" -> candle.close,
+                  "volume" -> candle.volume,
+                  "tickCount" -> candle.tickCount,
+                  "isFinal" -> candle.isFinal,
+                  "publishedAt" -> candle.publishedAt
+                )
+              }))
+              val headers = List[HttpHeader](`Access-Control-Allow-Origin`.*)
+              org.apache.pekko.http.scaladsl.model.HttpResponse(
+                entity = HttpEntity(ContentTypes.`application/json`, payload),
+                headers = headers
+              )
+            }
+          }
+        } ~
         path("ws" / "candles") {
           parameters("symbol".?, "timeframe".?) { (symbol, timeframe) =>
             handleWebSocketMessages(webSocketFlow(clients, symbol, timeframe))
@@ -193,3 +235,73 @@ object CandleWebSocketService:
     props.put("auto.offset.reset", "latest")
     props.put("enable.auto.commit", "true")
     props
+
+  private final case class HistoryCandle(
+      event: String,
+      exchange: String,
+      symbol: String,
+      currency: Option[String],
+      timeframe: String,
+      openTime: Instant,
+      closeTime: Instant,
+      open: String,
+      high: String,
+      low: String,
+      close: String,
+      volume: String,
+      tickCount: Long,
+      isFinal: Boolean,
+      publishedAt: String
+  )
+
+  private def loadCandlesFromSqlite(
+      dbUrl: String,
+      symbol: String,
+      timeframe: String,
+      date: LocalDate
+  ): Seq[HistoryCandle] =
+    val sql =
+      """
+        |SELECT event, exchange, symbol, currency, timeframe, open_time, close_time,
+        |       open, high, low, close, volume, tick_count, is_final, published_at
+        |FROM candles
+        |WHERE trading_date = ? AND symbol = ? AND timeframe = ?
+        |ORDER BY open_time ASC
+        |""".stripMargin
+
+    val connection = DriverManager.getConnection(dbUrl)
+    try
+      val prepared = connection.prepareStatement(sql)
+      try
+        prepared.setString(1, date.toString)
+        prepared.setString(2, symbol)
+        prepared.setString(3, timeframe)
+
+        val resultSet = prepared.executeQuery()
+        try
+          val rows = scala.collection.mutable.ArrayBuffer.empty[HistoryCandle]
+          while resultSet.next() do
+            rows += HistoryCandle(
+              event = resultSet.getString("event"),
+              exchange = resultSet.getString("exchange"),
+              symbol = resultSet.getString("symbol"),
+              currency = Option(resultSet.getString("currency")).filter(_.nonEmpty),
+              timeframe = resultSet.getString("timeframe"),
+              openTime = Instant.parse(resultSet.getString("open_time")),
+              closeTime = Instant.parse(resultSet.getString("close_time")),
+              open = resultSet.getString("open"),
+              high = resultSet.getString("high"),
+              low = resultSet.getString("low"),
+              close = resultSet.getString("close"),
+              volume = resultSet.getString("volume"),
+              tickCount = resultSet.getLong("tick_count"),
+              isFinal = resultSet.getInt("is_final") == 1,
+              publishedAt = resultSet.getString("published_at")
+            )
+          rows.toSeq
+        finally
+          resultSet.close()
+      finally
+        prepared.close()
+    finally
+      connection.close()

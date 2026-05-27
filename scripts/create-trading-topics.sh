@@ -6,6 +6,7 @@ CONTAINER_NAME="${CONTAINER_NAME:-stox-kafka}"
 
 topics=(
   "market.trades.raw:24:Raw exchange trades. Key: exchange:symbol"
+  "market.options.oi.snapshot:6:Daily option open-interest snapshots. Key: underlying:expiry:strike:right"
   "market.candles.1s:24:One-second live candles. Key: exchange:symbol:1s"
   "market.candles.1m:24:One-minute live candles. Key: exchange:symbol:1m"
   "market.candles.5m:12:Five-minute live candles. Key: exchange:symbol:5m"

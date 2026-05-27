@@ -6,6 +6,7 @@ import signal
 import sys
 import time
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from ib_async import IB, Stock
 from kafka import KafkaProducer
@@ -81,7 +82,55 @@ def parse_args():
     parser.add_argument("--currency", default="EUR")
     parser.add_argument("--market-data-type", type=int, default=1, choices=[1, 2, 3, 4], help="1 live, 2 frozen, 3 delayed, 4 delayed frozen")
     parser.add_argument("--min-interval-ms", type=int, default=250)
+    parser.add_argument(
+        "--trading-timezone",
+        default="Europe/Amsterdam",
+        help="IANA timezone used to classify premarket/regular/after-hours session labels.",
+    )
+    parser.add_argument(
+        "--regular-open",
+        default="09:00",
+        help="Local exchange open time in HH:MM used for session labeling.",
+    )
+    parser.add_argument(
+        "--regular-close",
+        default="17:30",
+        help="Local exchange close time in HH:MM used for session labeling.",
+    )
     return parser.parse_args()
+
+
+def parse_hhmm(value):
+    hour, minute = value.split(":", 1)
+    return int(hour), int(minute)
+
+
+def normalize_utc(value):
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def classify_session(source_timestamp_utc, timezone_name, regular_open, regular_close):
+    if source_timestamp_utc is None:
+        return "unknown", False
+
+    source_timestamp_utc = normalize_utc(source_timestamp_utc)
+    trading_timezone = ZoneInfo(timezone_name)
+    local_time = source_timestamp_utc.astimezone(trading_timezone)
+    open_hour, open_minute = parse_hhmm(regular_open)
+    close_hour, close_minute = parse_hhmm(regular_close)
+
+    open_time = local_time.replace(hour=open_hour, minute=open_minute, second=0, microsecond=0)
+    close_time = local_time.replace(hour=close_hour, minute=close_minute, second=0, microsecond=0)
+
+    if local_time < open_time:
+        return "premarket", True
+    if local_time <= close_time:
+        return "regular", False
+    return "afterhours", False
 
 
 def main():
@@ -122,7 +171,18 @@ def main():
     def publish_tick(updated_ticker):
         nonlocal last_signature, last_publish_at
 
+        source_timestamp = updated_ticker.time
+        if source_timestamp is None:
+            source_timestamp = datetime.now(timezone.utc)
+        session, is_premarket = classify_session(
+            source_timestamp,
+            args.trading_timezone,
+            args.regular_open,
+            args.regular_close,
+        )
         event = snapshot_from_ticker(updated_ticker, contract, source)
+        event["session"] = session
+        event["isPremarket"] = is_premarket
         signature = compact_signature(event)
         monotonic_now = time.monotonic()
 
@@ -138,7 +198,7 @@ def main():
         last_publish_at = monotonic_now
 
         print(
-            f"sent key={key} bid={event['bid']} ask={event['ask']} "
+            f"sent key={key} session={session} bid={event['bid']} ask={event['ask']} "
             f"last={event['last']} volume={event['volume']}"
         )
 
@@ -164,4 +224,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
